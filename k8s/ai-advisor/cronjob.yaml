@@ -21,7 +21,7 @@ spec:
 
           containers:
             - name: ai-advisor
-              image: 032098305878.dkr.ecr.ap-northeast-2.amazonaws.com/ticketing/ai-advisor:latest
+              image: 460575957045.dkr.ecr.ap-northeast-2.amazonaws.com/ticketing/ai-advisor:latest
               imagePullPolicy: Always
 
               env:
