@@ -1,0 +1,11 @@
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: keda-worker-sqs-aws
+  namespace: ticketing
+  labels:
+    app: worker-svc
+spec:
+  podIdentity:
+    provider: aws
+    identityOwner: keda

@@ -1,0 +1,17 @@
+# Windows 에서 편집해도 Unix 실행 환경(k8s/EKS 노드, GitHub Actions)에서
+# \r 로 깨지지 않도록 라인 엔딩을 LF 로 고정.
+# 형이 과거 "CRLF 수정" 커밋을 여러 번 낸 이력이 있어(3349076, 86eada3 등),
+# 같은 작업이 반복되지 않도록 attribute 로 강제한다.
+*.sh            text eol=lf
+*.py            text eol=lf
+*.yaml          text eol=lf
+*.yml           text eol=lf
+*.tf            text eol=lf
+*.hcl           text eol=lf
+*.sql           text eol=lf
+*.json          text eol=lf
+
+# 바이너리 (라인 엔딩 변환 금지)
+*.jpg           binary
+*.png           binary
+*.gif           binary

@@ -1,0 +1,20 @@
+groups:
+  - name: log-errors
+    rules:
+      - alert: ContainerErrorLogs
+        expr: |
+          sum by (container) (count_over_time({container=~".+"} |= "ERROR" [5m])) > 5
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.container }} 5min ERROR {{ $value }}"
+
+      - alert: ContainerCriticalLog
+        expr: |
+          sum by (container) (count_over_time({container=~".+"} |~ "CRITICAL|FATAL|panic" [5m])) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.container }} CRITICAL error detected"

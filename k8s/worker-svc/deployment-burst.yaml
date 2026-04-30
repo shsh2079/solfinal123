@@ -1,0 +1,55 @@
+# KEDA 대상. stable(worker-svc) 1대는 ticketing-priority-worker-bulk-stable(선점), 추가분만 여기(선점 없음).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-svc-burst
+  namespace: ticketing
+  labels:
+    app: worker-svc
+    pool: burst
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: worker-svc
+      pool: burst
+  template:
+    metadata:
+      labels:
+        app: worker-svc
+        pool: burst
+    spec:
+      enableServiceLinks: false
+      serviceAccountName: sqs-access-sa
+      priorityClassName: ticketing-priority-worker-bulk-burst
+      containers:
+        - name: worker-svc
+          image: ticketing/worker-svc:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 5002
+          envFrom:
+            - configMapRef:
+                name: ticketing-config
+            - secretRef:
+                name: ticketing-secrets
+          env:
+            - name: WORKER_SQS_BATCH_CONCURRENCY
+              value: "20"
+            - name: WORKER_SQS_POLLERS
+              value: "2"
+            - name: WORKER_DB_MAX_CONCURRENT
+              value: "40"
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "300m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5002
+            initialDelaySeconds: 10
+            periodSeconds: 15

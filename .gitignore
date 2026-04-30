@@ -1,0 +1,67 @@
+# Terraform
+terraform/.terraform/
+*.tfstate*
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+!terraform/.terraform.lock.hcl
+
+# Node.js
+node_modules/
+npm-debug.log*
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# 빌드 산출물
+dist/
+build/
+*.zip
+
+# 운영체제
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# 모니터링 환경변수
+monitoring/.env
+monitoring/grafana/data/
+
+# AWS 인증
+*.pem
+*.key
+credentials
+
+# Claude Code
+.claude/
+
+# AI 오토스케일 어드바이저 — 실행 산출물 (메트릭/추천/패치 JSON·YAML, 민감정보 포함)
+scripts/data/
+
+# 로컬 AWS CLI 설치 잔여물
+/aws/
+awscliv2.zip
+
+# 쉘에 잘못 저장된 파일 (aws --version && ... 형태의 명령어가 파일명으로 저장)
+aws --version*
+
+# ArgoCD Application manifest — terraform 이 argocd/application.yaml.tpl 을 렌더한 결과물.
+# 팀원마다 repoURL(github_repo) 이 달라야 하므로 git 에 커밋하지 않는다.
+argocd/application.rendered.yaml
+kubectl
+
+# GCP WIF Credential Config — setup-gcp.sh 가 매번 새로 생성하므로 git 불필요.
+# 프로젝트 번호·서비스계정 등 인프라 정보 포함.
+k8s/ai-advisor/gcp-credential-config.json

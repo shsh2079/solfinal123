@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: worker-svc
+  namespace: ticketing
+spec:
+  selector:
+    app: worker-svc
+  ports:
+    - name: metrics
+      port: 5002
+      targetPort: 5002

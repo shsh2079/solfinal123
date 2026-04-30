@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-svc
+  namespace: ticketing
+  labels:
+    app: worker-svc
+spec:
+  # stable 1대 + worker-svc-burst(KEDA). burst 는 선점 없음(Never).
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker-svc
+  template:
+    metadata:
+      labels:
+        app: worker-svc
+    spec:
+      # K8s ServiceLinks가 *_PORT=tcp://... 환경변수를 주입하면 앱의 *_PORT 설정과 충돌하는 경우가 있어 비활성화.
+      enableServiceLinks: false
+      serviceAccountName: sqs-access-sa
+      priorityClassName: ticketing-priority-worker-bulk-stable
+      containers:
+        - name: worker-svc
+          image: ticketing/worker-svc:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 5002
+          envFrom:
+            - configMapRef:
+                name: ticketing-config
+            - secretRef:
+                name: ticketing-secrets
+          env:
+            # 데모(버스트 처리): 파드당 처리량을 키워 scale-out 효과를 선명하게
+            - name: WORKER_SQS_BATCH_CONCURRENCY
+              value: "20"
+            - name: WORKER_SQS_POLLERS
+              value: "2"
+            - name: WORKER_DB_MAX_CONCURRENT
+              value: "40"
+          # Burstable 상위: requests 를 burst(128Mi/100m)보다 상향. eviction 랭킹에서 burst 가 먼저 희생.
+          resources:
+            requests:
+              memory: "200Mi"
+              cpu: "200m"
+            limits:
+              memory: "256Mi"
+              cpu: "300m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5002
+            initialDelaySeconds: 10
+            periodSeconds: 15

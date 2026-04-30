@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: read-api
+  namespace: ticketing
+  labels:
+    app: read-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: read-api
+  template:
+    metadata:
+      labels:
+        app: read-api
+    spec:
+      priorityClassName: ticketing-priority-read-api-stable
+      # 워커와 같은 노드에 몰리면 CPU/DB 경합으로 사이트 응답이 같이 느려질 수 있음 → 가능하면 분리(soft).
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 80
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - worker-svc
+                topologyKey: kubernetes.io/hostname
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: read-api
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: read-api
+      # K8s가 같은 네임스페이스 Service 이름으로 READ_API_PORT=tcp://... 를 자동 주입하면
+      # 앱 config.py의 READ_API_PORT(정수)와 충돌해 CrashLoopBackOff 발생함.
+      enableServiceLinks: false
+      containers:
+        - name: read-api
+          # ECR 전체 경로 (kubectl apply -f 단독 시에도 ErrImagePull 방지). 태그는 kustomization에서 덮어쓸 수 있음.
+          image: ticketing/ticketing-was:latest
+          imagePullPolicy: Always
+          command: ["uvicorn", "read_app:app", "--host", "0.0.0.0", "--port", "5000"]
+          ports:
+            - containerPort: 5000
+          envFrom:
+            - configMapRef:
+                name: ticketing-config
+            - secretRef:
+                name: ticketing-secrets
+          # Burstable 상위: requests 를 burst 파드(100m/128Mi)보다 크게 두어 메모리 eviction 랭킹상 burst 가 먼저 죽게 유도.
+          resources:
+            requests:
+              memory: "200Mi"
+              cpu: "200m"
+            limits:
+              memory: "256Mi"
+              cpu: "300m"
+          # 첫 Redis 웜업(read_app lifespan)이 끝나야 /health 응답 가능 → 짧은 liveness만 두면 재시작 루프 위험
+          startupProbe:
+            httpGet:
+              path: /api/read/health
+              port: 5000
+            periodSeconds: 10
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /api/read/health
+              port: 5000
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /api/read/health
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6

@@ -1,0 +1,82 @@
+groups:
+  - name: ticketing-critical
+    rules:
+      - alert: HighReservationErrorRate
+        expr: |
+          rate(reservation_requests_total{status="error"}[5m])
+          / rate(reservation_requests_total[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "reservation error rate {{ $value | humanizePercentage }}"
+          description: "5-min reservation error rate exceeded 5 pct."
+
+      - alert: SQSQueueBacklog
+        expr: aws_sqs_approximate_number_of_messages_visible_maximum > 500
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "SQS queue backlog {{ $value }}"
+          description: "More than 500 messages in the reservation queue."
+
+      - alert: ServiceHealthCheckFailed
+        expr: up{job=~"read-api|write-api|worker-svc"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} health check failed"
+          description: "Service is not responding. Check pod status."
+
+  - name: ticketing-warning
+    rules:
+      - alert: RDSReplicaLagHigh
+        expr: aws_rds_replica_lag_average > 5
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Read Replica lag {{ $value }}s"
+
+      - alert: RedisMemoryHigh
+        expr: aws_elasticache_database_memory_usage_percentage_average > 75
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis memory {{ $value }}%"
+
+      - alert: RDSHighCPU
+        expr: aws_rds_cpuutilization_average > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "RDS CPU {{ $value }}%"
+
+      - alert: MonitoringEC2HighCPU
+        expr: 100 - (avg by(instance)(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 70
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Monitoring EC2 CPU {{ $value }}%"
+
+      - alert: DLQMessageReceived
+        expr: aws_sqs_approximate_number_of_messages_visible_maximum{dimension_QueueName=~".*dlq.*"} > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DLQ messages {{ $value }}"
+          description: "Reservation messages failed 3 times."
+
+      - alert: ReservationSlowResponse
+        expr: ticketing_worker_handle_ms{stat="max"} > 1000
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Reservation max handling time {{ $value }}ms"

@@ -1,0 +1,162 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudwatch-exporter-config
+  namespace: ticketing
+data:
+  config.yml: |
+    region: ap-northeast-2
+    period_seconds: 60
+    delay_seconds: 120
+    metrics:
+      - aws_namespace: AWS/SQS
+        aws_metric_name: ApproximateNumberOfMessagesVisible
+        aws_dimensions: [QueueName]
+        aws_statistics: [Maximum]
+      - aws_namespace: AWS/SQS
+        aws_metric_name: NumberOfMessagesSent
+        aws_dimensions: [QueueName]
+        aws_statistics: [Sum]
+      - aws_namespace: AWS/RDS
+        aws_metric_name: CPUUtilization
+        aws_dimensions: [DBInstanceIdentifier]
+        aws_statistics: [Average]
+      - aws_namespace: AWS/RDS
+        aws_metric_name: DatabaseConnections
+        aws_dimensions: [DBInstanceIdentifier]
+        aws_statistics: [Average]
+      - aws_namespace: AWS/RDS
+        aws_metric_name: ReplicaLag
+        aws_dimensions: [DBInstanceIdentifier]
+        aws_statistics: [Average]
+      - aws_namespace: AWS/ElastiCache
+        aws_metric_name: DatabaseMemoryUsagePercentage
+        aws_dimensions: [CacheClusterId]
+        aws_statistics: [Average]
+      - aws_namespace: AWS/ElastiCache
+        aws_metric_name: CurrConnections
+        aws_dimensions: [CacheClusterId]
+        aws_statistics: [Average]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudwatch-exporter
+  namespace: ticketing
+  labels:
+    app: cloudwatch-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cloudwatch-exporter
+  template:
+    metadata:
+      labels:
+        app: cloudwatch-exporter
+    spec:
+      serviceAccountName: ai-advisor-sa
+      priorityClassName: ticketing-priority-platform
+      containers:
+        - name: cloudwatch-exporter
+          image: prom/cloudwatch-exporter:v0.15.5
+          args:
+            - "9106"
+            - "/config/config.yml"
+          ports:
+            - name: metrics
+              containerPort: 9106
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+      volumes:
+        - name: config
+          configMap:
+            name: cloudwatch-exporter-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloudwatch-exporter
+  namespace: ticketing
+  labels:
+    app: cloudwatch-exporter
+spec:
+  selector:
+    app: cloudwatch-exporter
+  ports:
+    - name: metrics
+      port: 9106
+      targetPort: metrics
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-exporter
+  namespace: ticketing
+  labels:
+    app: redis-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis-exporter
+  template:
+    metadata:
+      labels:
+        app: redis-exporter
+    spec:
+      priorityClassName: ticketing-priority-platform
+      containers:
+        - name: redis-exporter
+          image: oliver006/redis_exporter:v1.67.0
+          command:
+            - sh
+            - -c
+            - |
+              export REDIS_ADDR="redis://${REDIS_HOST}:${REDIS_PORT:-6379}"
+              exec /redis_exporter
+          env:
+            - name: REDIS_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ticketing-secrets
+                  key: REDIS_HOST
+            - name: REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: ticketing-config
+                  key: REDIS_PORT
+          ports:
+            - name: metrics
+              containerPort: 9121
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-exporter
+  namespace: ticketing
+  labels:
+    app: redis-exporter
+spec:
+  selector:
+    app: redis-exporter
+  ports:
+    - name: metrics
+      port: 9121
+      targetPort: metrics

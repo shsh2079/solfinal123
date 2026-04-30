@@ -1,0 +1,97 @@
+# 주의: PriorityClass.value 는 생성 후 변경 불가(immutable).
+# 이미 존재하는 이름(ticketing-priority-write-api/read-api/worker-bulk)은 값을 바꾸지 않는다.
+# 대신 stable 1대 전용 "새 이름"을 추가해서(아래 *-stable) Deployment가 그걸 쓰게 한다.
+#
+# 계층(의도):
+# - 플랫폼(KEDA/CA/ALB 등): system-cluster-critical (Helm 차트에서 지정)
+# - 앱 stable 1대: *-stable (선점 가능)
+# - 앱 burst(2번째~): *-burst (preemptionPolicy: Never)
+#
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: ticketing-priority-write-api-stable
+value: 260000
+globalDefault: false
+description: "write-api stable 1대 — 플랫폼(system-cluster-critical) 아래"
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: ticketing-priority-read-api-stable
+value: 255000
+globalDefault: false
+description: "read-api stable 1대 — 플랫폼 아래"
+---
+# HPA로 붙는 read-api 추가 레플리카: 남을 선점하지 않음(워커·devtools 보호). stable 보다 낮아 정리 시 burst 가 먼저 밀림.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: ticketing-priority-read-api-burst
+value: 180000
+preemptionPolicy: Never
+globalDefault: false
+description: "read-api burst — 선점 없음"
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: ticketing-priority-write-api-burst
+value: 185000
+preemptionPolicy: Never
+globalDefault: false
+description: "write-api burst — read-stable 보다 낮음"
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: ticketing-priority-worker-bulk-stable
+value: 250000
+globalDefault: false
+description: "worker-svc stable 1대 — 플랫폼 아래, burst·devtools 위"
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: ticketing-priority-worker-bulk-burst
+value: 9000
+preemptionPolicy: Never
+globalDefault: false
+description: "worker-svc KEDA 추가분 — 선점 없음"
+---
+# tools-once, rds-bastion — worker(10000)보다 value 는 높지만 preemptionPolicy: Never 로
+# Running 워커/read/write 를 쫓아내지 않음(슬롯 날 때만 스케줄, Pending 가능).
+# 구 클러스터에 ticketing-priority-ops(선점 가능)가 남아 있으면: 파드가 안 쓰는지 확인 후 삭제해도 됨.
+# read/write 가 더 높아 노드 부족 시 이 파드는 선점당할 수 있음.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: ticketing-priority-devtools
+value: 50000
+preemptionPolicy: Never
+globalDefault: false
+description: "도구 Pod(tools-once 등)·DB 터널 — 선점 없음, 워커 강제 종료 방지"
+
+---
+# tools-once 같은 운영 도구 Pod를 "사용자가 끄기 전까지" 최대한 유지하기 위한 보호 우선순위.
+# - 높은 value로 read/write/worker stable 보다도 우선순위를 올리되,
+# - preemptionPolicy: Never 로 다른 워크로드를 쫓아내진 않음(빈 슬롯에만 스케줄).
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: ticketing-priority-devtools-protected
+value: 270000
+preemptionPolicy: Never
+globalDefault: false
+description: "devtools 보호(선점 없음) — tools-once 등"
+---
+# 플랫폼(모니터링/ArgoCD) — 앱 stable 보다도 위에 두고, preemption 가능.
+# burst 파드(9k~185k)가 노드 선점한 상태에서 plaform 파드가 재스케줄될 때
+# 밀려서 Pending 되던 문제를 방지. priorityClassName 을 Helm values 에 주입.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: ticketing-priority-platform
+value: 300000
+globalDefault: false
+description: "플랫폼(monitoring/ArgoCD) — 앱 위, burst 선점 가능"

@@ -1,0 +1,110 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ticketing-config
+  namespace: ticketing
+data:
+  # SQS/boto3/KEDA ScaledObject(awsRegion)와 동일 리전으로 맞출 것 (terraform aws_region).
+  AWS_REGION: "ap-northeast-2"
+  DB_NAME: "ticketing"
+  DB_PORT: "3306"
+  REDIS_PORT: "6379"
+  # R/O 리플리카 도입 전까지 false. true + Secret 의 DB_READER_HOST 분리 시에만 리더 접속.
+  DB_READ_REPLICA_ENABLED: "false"
+  # read-api: 시작 직후 Redis 웜업(기존 로컬 systemd 1분×5회와 동일 취지). CACHE_ENABLED=false면 무시.
+  CACHE_ENABLED: "true"
+  CACHE_WARMUP_ENABLED: "true"
+  CACHE_WARMUP_TOTAL_RUNS: "5"
+  CACHE_WARMUP_INTERVAL_SEC: "60"
+  # true면 주기 웜업(위 interval)에서 영화·극장 전체 리빌드 생략, 콘서트만 갱신
+  CACHE_WARMUP_REPEAT_LIGHT: "false"
+  # ElastiCache: Pod당 연결 상한·타임아웃(초). 0은 해당 옵션 미사용.
+  REDIS_MAX_CONNECTIONS: "50"
+  REDIS_SOCKET_TIMEOUT_SEC: "5"
+  REDIS_CONNECT_TIMEOUT_SEC: "3"
+  REDIS_HEALTH_CHECK_INTERVAL_SEC: "30"
+  # 단일 ElastiCache 노드 내 논리 DB (조회 캐시 vs SQS 예매 상태). flushdb 범위 분리.
+  ELASTICACHE_LOGICAL_DB_CACHE: "0"
+  ELASTICACHE_LOGICAL_DB_BOOKING: "1"
+  # SQS+예매 사용 시 앱이 자동으로 예매 상태 캐시를 켬(write-api·worker 동일 규칙). SQS 끄면 의미 있음.
+  BOOKING_STATE_ENABLED: "true"
+  # 콘서트: minimal=기동 시 공연 목록만 Redis / full=공연별 상세 키까지 일괄 웜업
+  CONCERT_CACHE_WARMUP_MODE: "minimal"
+
+  # write-api: 기동 시 remain_count 동기화(DB UPDATE) 실행 여부.
+  # - 최초 기동/rollout restart 때 1회 실행된다(요청마다 실행 아님).
+  # - DB가 늦게 뜨는 환경에서 재시도/대기 후 진행.
+  SYNC_REMAIN_COUNTS_ON_STARTUP: "true"
+  SYNC_DB_WAIT_MAX_SEC: "120"
+  SYNC_DB_WAIT_INITIAL_BACKOFF_MS: "500"
+  SYNC_DB_WAIT_MAX_BACKOFF_MS: "5000"
+
+  # read-api: 기동 웜업 전에 write-api startup sync 완료를 기다려 순서를 보장.
+  READ_WAIT_FOR_WRITE_SYNC_ON_STARTUP: "true"
+  READ_WAIT_FOR_WRITE_SYNC_MAX_SEC: "180"
+  READ_WAIT_FOR_WRITE_SYNC_INITIAL_BACKOFF_MS: "300"
+  READ_WAIT_FOR_WRITE_SYNC_MAX_BACKOFF_MS: "3000"
+  WRITE_API_BASE_URL: "http://write-api:5001"
+  # 콘서트 SQS FIFO: 한 회차 내부 샤딩 수(그룹 분산). 파드 확장 효과를 만들기 위한 핵심 파라미터.
+  CONCERT_FIFO_SHARDS: "64"
+  # 부트스트랩 시 회차 행 목록 캐시 TTL(초). 0이면 매 요청 DB 조회.
+  CONCERT_SHOWS_META_TTL_SEC: "120"
+  # 공연 목록·상세 Redis TTL(초). 0=만료 없음. 대규모 오픈 시 목록만 300~600 등 검토.
+  CONCERTS_LIST_CACHE_TTL_SEC: "0"
+  CONCERT_DETAIL_CACHE_TTL_SEC: "0"
+  # SQS (write-api sqs_client + worker-svc 공통 boto 재시도)
+  SQS_BOTO_MAX_ATTEMPTS: "5"
+  SQS_BOTO_RETRY_MODE: "adaptive"
+  SQS_CONNECT_TIMEOUT_SEC: "5"
+  SQS_READ_TIMEOUT_SEC: "30"
+  # 단일 큐 모드: URL을 주입하지 않고 이름만 공유(앱이 GetQueueUrl로 조회)
+  SQS_QUEUE_NAME: "ticketing-reservation.fifo"
+  # worker-svc 수신 (FIFO는 한 번에 서로 다른 그룹 최대 10개까지)
+  SQS_RECEIVE_MAX_MESSAGES: "10"
+  # 배치로 받은 메시지를 동시에 처리(그룹당 최대 1개/Receive이므로 순서 안전). GUI 대기 단축.
+  WORKER_SQS_BATCH_CONCURRENCY: "10"
+  # worker-svc: 파드당 SQS 폴링 스레드 수(샤딩과 조합 시 처리량 증가).
+  WORKER_SQS_POLLERS: "2"
+  # worker-svc: 파드당 DB 동시 실행 제한(커넥션/락 경합 제어). 데모에서는 20~50 권장.
+  WORKER_DB_MAX_CONCURRENT: "20"
+  # worker-svc: seat_hold 가 표시한 concert:remain_dirty:show_ids:v1 set 을 주기적으로 소비해
+  # concert_shows.remain_count 를 DB 에 반영하는 백그라운드 루프.
+  # off 면 Redis remain 은 실시간이지만 DB remain 컬럼은 worker-svc 의 booking 처리 경로로만 갱신되어
+  # 환불/seat hold 변동 후 DB 값이 lagging. 운영에선 항상 true.
+  REMAIN_DB_SYNC_ENABLED: "true"
+  REMAIN_DB_SYNC_INTERVAL_SEC: "2"
+  REMAIN_DB_SYNC_BATCH_SIZE: "200"
+  REMAIN_DB_SYNC_LOCK_TTL_SEC: "3"
+  SQS_WAIT_TIME_SECONDS: "20"
+  SQS_POLL_ERROR_BACKOFF_SEC: "3"
+  # SQS 수락 후 폴링용 Redis queued 키 TTL(초). 큐 적체 시각보다 길게 두는 것이 안전.
+  BOOKING_QUEUED_TTL_SEC: "7200"
+  # 예매 처리 대기열(연출용) 카운터 TTL(초): booking:queue:{type}:{id}:{enq|done}
+  BOOKING_QUEUE_COUNTER_TTL_SEC: "7200"
+  # worker 결과 Redis TTL(초). burst 데모에서 처리 완료 후 결과를 충분히 오래 볼 수 있게.
+  BOOKING_RESULT_TTL_SEC: "3600"
+
+  # ── 콘서트 좌석 상태/표시 정책 ──────────────────────────────────────────────
+  # 홀드(주황) TTL(초): 처리중 상태가 영구히 남지 않게 하는 최후 안전장치.
+  CONCERT_SEAT_HOLD_TTL_SEC: "600"
+  # 확정(회색) 가드 set fallback TTL(초). 0이면 show_date 기반 EXPIREAT만 사용(권장).
+  CONCERT_CONFIRMED_SET_TTL_SEC: "0"
+  # 확정 가드 set 만료 여유(초): 공연 종료 후 이 시간만큼 남겼다가 자동 삭제.
+  CONCERT_CONFIRMED_SET_GRACE_SEC: "21600"
+  # remain 계산에 WR backlog를 추가 수요로 차감할지(연출용). 기본 false(실제 좌석 기준).
+  CONCERT_REMAIN_SUBTRACT_WR_BACKLOG: "false"
+
+  # ── Waiting Room 카운터 TTL(초) ────────────────────────────────────────────
+  # wr:* 카운터(enq/done/clock/control/observe)는 TTL 없이 누적되면 시연 반복 시 대기열이 튀므로 TTL 권장.
+  WR_COUNTER_TTL_SEC: "7200"
+---
+# Secrets는 kubectl로 별도 생성:
+# kubectl create secret generic ticketing-secrets \
+#   --from-literal=DB_WRITER_HOST=<rds-writer-endpoint> \
+#   --from-literal=DB_READER_HOST=<rds-reader-endpoint> \
+#   --from-literal=DB_USER=root \
+#   --from-literal=DB_PASSWORD=<YOUR_DB_PASSWORD> \
+#   --from-literal=ELASTICACHE_PRIMARY_ENDPOINT=<elasticache-endpoint> \
+#   --from-literal=REDIS_HOST=<elasticache-endpoint> \
+#   --from-literal=SQS_QUEUE_NAME=ticketing-reservation.fifo \
+#   -n ticketing

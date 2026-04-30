@@ -1,0 +1,88 @@
+# HPA 대상. stable(read-api) 1대는 ticketing-priority-read-api-stable(선점), 추가분만 여기(선점 없음).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: read-api-burst
+  namespace: ticketing
+  labels:
+    app: read-api
+    pool: burst
+spec:
+  # Resource metric(HPA)는 0→1 scale-up을 못 함(파드 메트릭이 없어서). 1개는 항상 떠 있게 둔다.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: read-api
+      pool: burst
+  template:
+    metadata:
+      labels:
+        app: read-api
+        pool: burst
+    spec:
+      priorityClassName: ticketing-priority-read-api-burst
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 80
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - worker-svc
+                topologyKey: kubernetes.io/hostname
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: read-api
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: read-api
+      enableServiceLinks: false
+      containers:
+        - name: read-api
+          image: ticketing/ticketing-was:latest
+          imagePullPolicy: Always
+          command: ["uvicorn", "read_app:app", "--host", "0.0.0.0", "--port", "5000"]
+          ports:
+            - containerPort: 5000
+          envFrom:
+            - configMapRef:
+                name: ticketing-config
+            - secretRef:
+                name: ticketing-secrets
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "300m"
+          startupProbe:
+            httpGet:
+              path: /api/read/health
+              port: 5000
+            periodSeconds: 10
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /api/read/health
+              port: 5000
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /api/read/health
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6

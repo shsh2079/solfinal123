@@ -1,0 +1,271 @@
+# -------------------------------------------------------
+# kube-prometheus-stack  Helm values
+# Target nodes: t3.small (2 vCPU / 2 GiB) -- keep lightweight
+# -------------------------------------------------------
+
+# ── Prometheus ─────────────────────────────────────────
+prometheus:
+  prometheusSpec:
+    priorityClassName: ticketing-priority-platform
+    # t3.small 경량화: 15d→5d 로 TSDB 크기·메모리 대폭 절감
+    retention: 5d
+    # 30s 스크레이프로 샘플 수 절반 감소 → 메모리·CPU 추가 절감
+    scrapeInterval: 30s
+    scrapeTimeout: 25s
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+    # 실사용 494Mi(retention 15d 기준) → 5d + 30s 간격 적용 시 ~280Mi 예상
+    resources:
+      requests:
+        cpu: 80m
+        memory: 256Mi
+      limits:
+        cpu: 400m
+        memory: 512Mi
+
+    # EKS service scrape configs (app endpoints in ticketing namespace)
+    additionalScrapeConfigs:
+      - job_name: 'read-api'
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names: [ticketing]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name]
+            regex: read-api
+            action: keep
+          - source_labels: [__meta_kubernetes_endpoint_port_name]
+            regex: metrics
+            action: keep
+
+      - job_name: 'write-api'
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names: [ticketing]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name]
+            regex: write-api
+            action: keep
+          - source_labels: [__meta_kubernetes_endpoint_port_name]
+            regex: metrics
+            action: keep
+
+      - job_name: 'worker-svc'
+        kubernetes_sd_configs:
+          - role: endpoints
+            namespaces:
+              names: [ticketing]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_name]
+            regex: worker-svc
+            action: keep
+          - source_labels: [__meta_kubernetes_endpoint_port_name]
+            regex: metrics
+            action: keep
+
+      # CloudWatch exporter (runs as a k8s Deployment in ticketing ns)
+      - job_name: 'cloudwatch-exporter'
+        static_configs:
+          - targets: ['cloudwatch-exporter.ticketing.svc.cluster.local:9106']
+        scrape_interval: 60s
+
+      # Redis exporter
+      - job_name: 'redis-exporter'
+        static_configs:
+          - targets: ['redis-exporter.ticketing.svc.cluster.local:9121']
+
+# ── Grafana ────────────────────────────────────────────
+grafana:
+  priorityClassName: ticketing-priority-platform
+  adminUser: root
+  adminPassword: soldesk1.
+  env:
+    TZ: Asia/Seoul
+  defaultDashboardsTimezone: Asia/Seoul
+  # RWO PVC(gp3 EBS) 라 RollingUpdate 시 Multi-Attach 데드락. 새 파드는 구 파드가 완전히 사라져야 마운트 가능.
+  deploymentStrategy:
+    type: Recreate
+  persistence:
+    enabled: true
+    storageClassName: gp3
+    size: 5Gi
+  # 실사용 463Mi(limit 미설정으로 누수) → limit 200Mi 고정으로 절감
+  # Grafana 자체는 100~150Mi 면 충분, 대시보드 캐시 포함 200Mi 여유
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 200Mi
+  service:
+    type: ClusterIP
+
+  # Loki datasource
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://loki.monitoring.svc.cluster.local:3100
+      uid: loki
+      editable: false
+
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: 'default'
+          orgId: 1
+          folder: ''
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/default
+
+  # Dashboard JSON will be loaded via ConfigMap sidecar
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: monitoring
+
+  grafana.ini:
+    server:
+      root_url: "%(protocol)s://%(domain)s/grafana"
+      serve_from_sub_path: true
+    date_formats:
+      default_timezone: Asia/Seoul
+
+# ── AlertManager ───────────────────────────────────────
+alertmanager:
+  alertmanagerSpec:
+    priorityClassName: ticketing-priority-platform
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 2Gi
+    resources:
+      requests:
+        cpu: 50m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 64Mi
+
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      group_by: ['alertname', 'severity']
+      group_wait: 10s
+      group_interval: 5m
+      repeat_interval: 1h
+      receiver: 'slack'
+      routes:
+        - match:
+            severity: critical
+          receiver: 'slack'
+          repeat_interval: 15m
+    receivers:
+      - name: 'slack'
+        slack_configs:
+          - api_url: 'SLACK_WEBHOOK_PLACEHOLDER'
+            send_resolved: true
+            channel: '#alerts'
+            title: '[{{ .Status | toUpper }}] {{ .GroupLabels.alertname }}'
+            text: >-
+              {{ range .Alerts }}
+              *severity*: {{ .Labels.severity }}
+              *summary*: {{ .Annotations.summary }}
+              *starts*: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+              ---
+              {{ end }}
+    inhibit_rules:
+      - source_match:
+          severity: 'critical'
+        target_match:
+          severity: 'warning'
+        equal: ['alertname']
+
+# ── Node Exporter ──────────────────────────────────────
+# 활성화 시 DaemonSet 이 모든 노드에 뜨며 node_cpu_*/node_memory_*/node_filesystem_*
+# 메트릭 제공. 그래프 1860("Node Exporter Full") / 빌트인 "Node Exporter / Nodes"
+# 등 Node 레벨 대시보드가 값을 채우려면 필수.
+nodeExporter:
+  enabled: true
+
+# ── kube-state-metrics ─────────────────────────────────
+# 활성화 시 kube_pod_* / kube_deployment_* / kube_node_* 메트릭 제공.
+# "Kubernetes / Views / Nodes", "Kubernetes / Views / Pods" 같은 cluster-wide
+# 대시보드에서 cluster/node/pod dropdown 을 채우려면 필수.
+kubeStateMetrics:
+  enabled: true
+
+# ── EKS managed control-plane 컴포넌트 비활성화 ─────────
+# EKS 는 etcd / kube-scheduler / kube-controller-manager 를 AWS 가 관리하는 영역에서
+# 돌리며 고객 VPC 에서 metrics endpoint 접근이 불가능하다(AWS 정책상 비공개).
+# 아래 3개를 기본값(true) 으로 두면 Prometheus Operator 가 ServiceMonitor/Service 는
+# 만드는데 실제 endpoint 가 없어 target 자체가 비고, Grafana 의
+# "Kubernetes / etcd / Scheduler / Controller Manager" 대시보드가 전부 No data 로 뜸.
+# defaultRules.rules.* 도 함께 꺼서 항상 fire 하는 가짜 etcdDown / kubeSchedulerDown
+# 알림이 울리지 않도록 한다.
+kubeEtcd:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+
+defaultRules:
+  rules:
+    etcd: false
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+    kubeControllerManager: false
+
+# ── Prometheus Operator ────────────────────────────────
+prometheusOperator:
+  priorityClassName: ticketing-priority-platform
+  # 실사용 3m/20Mi — 과다 requests 축소.
+  resources:
+    requests:
+      cpu: 20m
+      memory: 48Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+# ── 서브차트(node-exporter/kube-state-metrics)도 플랫폼 우선순위로 ───────
+# 실사용이 작으나 requests 없으면 BestEffort QoS 라 노드 압박 시 먼저 evict.
+# 작은 값이라도 명시해 Burstable QoS + 스케줄링 예측성 확보.
+prometheus-node-exporter:
+  priorityClassName: ticketing-priority-platform
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 50m
+      memory: 64Mi
+kube-state-metrics:
+  priorityClassName: ticketing-priority-platform
+  resources:
+    requests:
+      cpu: 20m
+      memory: 48Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi

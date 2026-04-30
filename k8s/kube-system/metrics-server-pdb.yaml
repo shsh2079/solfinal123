@@ -1,0 +1,13 @@
+# kube-system (EKS metrics-server 애드온)
+# 루트 k8s/kustomization.yaml → kube-system 서브디렉터리로 kubectl apply -k 시 함께 적용
+# PDB 는 minAvailable 과 maxUnavailable 동시 설정 불가. 예전 리소스에 maxUnavailable 만 있으면 apply 병합이 실패할 수 있어 bootstrap 에서 선삭제함.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: metrics-server
+  namespace: kube-system
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: metrics-server

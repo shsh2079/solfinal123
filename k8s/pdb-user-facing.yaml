@@ -1,0 +1,22 @@
+# 자발적 축소(drain) 시 사용자 대면 API·UI 워커 가용성 유지
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: write-api-pdb
+  namespace: ticketing
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: write-api
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: read-api-pdb
+  namespace: ticketing
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: read-api

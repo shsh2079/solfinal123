@@ -1,0 +1,72 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ai-advisor
+  namespace: ticketing
+spec:
+  schedule: "*/10 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 900
+      backoffLimit: 1
+
+      template:
+        spec:
+          serviceAccountName: ai-advisor-sa
+          restartPolicy: OnFailure
+
+          containers:
+            - name: ai-advisor
+              image: 032098305878.dkr.ecr.ap-northeast-2.amazonaws.com/ticketing/ai-advisor:latest
+              imagePullPolicy: Always
+
+              env:
+                - name: GEMINI_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: ai-advisor-secrets
+                      key: GEMINI_API_KEY
+
+                - name: SLACK_WEBHOOK_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: ai-advisor-secrets
+                      key: SLACK_WEBHOOK_URL
+                      optional: true
+
+                - name: GOOGLE_APPLICATION_CREDENTIALS
+                  value: /var/run/secrets/gcp/config.json
+
+                - name: GCP_PROJECT_ID
+                  value: "soldesk-gcp"
+
+                - name: AWS_REGION
+                  value: "ap-northeast-2"
+
+                - name: PROMETHEUS_URL
+                  value: "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090"
+
+              volumeMounts:
+                - name: gcp-credential-config
+                  mountPath: /var/run/secrets/gcp
+                  readOnly: true
+
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "256Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "512Mi"
+
+          volumes:
+            - name: gcp-credential-config
+              configMap:
+                name: gcp-credential-config
+                items:
+                  - key: config.json
+                    path: config.json

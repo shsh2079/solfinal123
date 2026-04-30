@@ -1,0 +1,64 @@
+# -------------------------------------------------------
+# Grafana Loki  Helm values  (single-binary / small-scale)
+# -------------------------------------------------------
+
+deploymentMode: SingleBinary
+
+loki:
+  auth_enabled: false
+  commonConfig:
+    replication_factor: 1
+  storage:
+    type: filesystem
+  schemaConfig:
+    configs:
+      - from: "2024-01-01"
+        store: tsdb
+        object_store: filesystem
+        schema: v13
+        index:
+          prefix: index_
+          period: 24h
+  limits_config:
+    retention_period: 72h           # 3 days (t3.small 경량화)
+
+singleBinary:
+  priorityClassName: ticketing-priority-platform
+  replicas: 1
+  # 실사용 157Mi → limit 200Mi 로 제한, 3일 retention 으로 추가 절감
+  resources:
+    requests:
+      cpu: 30m
+      memory: 128Mi
+    limits:
+      cpu: 150m
+      memory: 200Mi
+  persistence:
+    enabled: true
+    storageClass: gp3
+    size: 10Gi
+
+# Disable components not needed in single-binary mode
+gateway:
+  enabled: false
+backend:
+  replicas: 0
+read:
+  replicas: 0
+write:
+  replicas: 0
+
+# Compactor for retention
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+
+# t3.small 리소스 절약 — 캐시·카나리 비활성화
+chunksCache:
+  enabled: false
+resultsCache:
+  enabled: false
+test:
+  enabled: false
+lokiCanary:
+  enabled: false

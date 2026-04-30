@@ -1,0 +1,25 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ticketing
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Tuxtarve/soldeskfinal.git
+    targetRevision: FINAL
+    path: k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ticketing
+  # sqs-access-sa 는 k8s/_runtime/ 으로 이동해 ArgoCD 관리 밖에서 post_apply_k8s_bootstrap.sh
+  # 가 직접 apply. ignoreDifferences 를 쓰지 않아도 됨.
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true  # git을 단일 진실로 강제 — 수동 kubectl 변경은 수 초 내 원복
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

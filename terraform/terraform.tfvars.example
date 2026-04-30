@@ -1,0 +1,47 @@
+# ─────────────────────────────────────────────────────────
+# 팀원 배포용 예시 — 이 파일을 terraform.tfvars 로 복사 후 값 채우기:
+#   cp terraform.tfvars.example terraform.tfvars
+#
+# terraform.tfvars 는 .gitignore 로 제외됨 (민감값 git 유출 방지).
+# 따라서 fork 받은 상태에서는 terraform.tfvars 파일 자체가 없는 게 정상.
+# ─────────────────────────────────────────────────────────
+
+# ★ 필수 1: Cognito 호스티드 UI 도메인 접두사 (전역 유일)
+# 다른 AWS 계정이 먼저 같은 값으로 apply 해두면
+# "Domain already associated with another user pool" 에러로 apply 실패.
+# 본인만의 유니크 문자열 사용 (숫자 포함 권장).
+# 예: "myticket-auth-jd4k29"
+cognito_domain_prefix = "myticket-auth-CHANGE-ME"
+
+# ★ 필수 2: 본인 GitHub 리포지토리 (owner/repo 형식)
+# CI/CD 용 OIDC IAM role trust 조건에 사용됨.
+# 이 값이 틀리면 GitHub Actions 에서 AWS role assume 실패.
+github_repo = "your-github-id/soldesk"
+
+# ─── 아래 2줄은 그대로 두세요 — setup-all.sh 가 자동으로 채웁니다 ──
+alb_listener_arn         = ""
+frontend_callback_domain = ""
+
+# ─── DB 비밀번호는 tfvars 에 넣지 말고 환경변수로 주입 ─────────
+#   export TF_VAR_db_password='MyStr0ng!Pass2026'
+# ─────────────────────────────────────────────────────────
+
+# (선택) 기본값으로 충분하므로 보통 건드릴 필요 없음:
+# env              = "prod"
+# aws_region       = "ap-northeast-2"
+# app_name         = "ticketing"
+# eks_cluster_name = "ticketing-eks"
+
+# GCP Cloud Logging + Workload Identity Federation for ai-advisor.
+# First make sure gcloud ADC can manage this project:
+#   gcloud auth application-default login
+#   gcloud config set project soldesk-gcp
+#
+# enable_gcp_ai_advisor = true
+# gcp_project_id        = "soldesk-gcp"
+#
+# Optional: Terraform can create the ai-advisor-secrets Secret, but this stores
+# the secret value in Terraform state. Keeping it false is safer.
+# create_ai_advisor_secret = false
+# gemini_api_key           = ""
+# slack_webhook_url        = ""

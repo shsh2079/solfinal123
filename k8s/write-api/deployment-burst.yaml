@@ -1,0 +1,82 @@
+# HPA 대상. stable(write-api) 1대는 ticketing-priority-write-api-stable(선점), 추가분만 여기(선점 없음).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: write-api-burst
+  namespace: ticketing
+  labels:
+    app: write-api
+    pool: burst
+spec:
+  # Resource metric(HPA)는 0→1 scale-up을 못 함(파드 메트릭이 없어서). 1개는 항상 떠 있게 둔다.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: write-api
+      pool: burst
+  template:
+    metadata:
+      labels:
+        app: write-api
+        pool: burst
+    spec:
+      enableServiceLinks: false
+      priorityClassName: ticketing-priority-write-api-burst
+      serviceAccountName: sqs-access-sa
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: write-api
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: write-api
+      containers:
+        - name: write-api
+          image: ticketing/ticketing-was:latest
+          imagePullPolicy: Always
+          command: ["uvicorn", "write_app:app", "--host", "0.0.0.0", "--port", "5001"]
+          ports:
+            - containerPort: 5001
+          envFrom:
+            - configMapRef:
+                name: ticketing-config
+            - secretRef:
+                name: ticketing-secrets
+          env:
+            - name: CONCERT_FIFO_SHARDS
+              value: "64"
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+          startupProbe:
+            httpGet:
+              path: /api/write/health
+              port: 5001
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /api/write/health
+              port: 5001
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /api/write/health
+              port: 5001
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
