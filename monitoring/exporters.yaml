@@ -61,7 +61,6 @@ spec:
         - name: cloudwatch-exporter
           image: prom/cloudwatch-exporter:v0.15.5
           args:
-            - "9106"
             - "/config/config.yml"
           ports:
             - name: metrics

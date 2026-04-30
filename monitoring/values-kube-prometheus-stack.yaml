@@ -20,14 +20,14 @@ prometheus:
           resources:
             requests:
               storage: 10Gi
-    # 실사용 494Mi(retention 15d 기준) → 5d + 30s 간격 적용 시 ~280Mi 예상
+    # 실제 사용량을 request에 가깝게 반영해야 노드가 부족할 때 CA가 scale-up 신호(Pending)를 볼 수 있다.
     resources:
       requests:
-        cpu: 80m
-        memory: 256Mi
+        cpu: 120m
+        memory: 384Mi
       limits:
         cpu: 400m
-        memory: 512Mi
+        memory: 768Mi
 
     # EKS service scrape configs (app endpoints in ticketing namespace)
     additionalScrapeConfigs:
@@ -96,15 +96,15 @@ grafana:
     enabled: true
     storageClassName: gp3
     size: 5Gi
-  # 실사용 463Mi(limit 미설정으로 누수) → limit 200Mi 고정으로 절감
-  # Grafana 자체는 100~150Mi 면 충분, 대시보드 캐시 포함 200Mi 여유
+  # Grafana main + sidecar 2개가 함께 떠서 200Mi limit는 readiness 흔들림을 만들 수 있다.
+  # request를 현실화해 과밀 배치를 줄이고, 부족 시 CA가 scale-up 신호를 보게 한다.
   resources:
     requests:
-      cpu: 50m
-      memory: 128Mi
+      cpu: 80m
+      memory: 256Mi
     limits:
       cpu: 200m
-      memory: 200Mi
+      memory: 512Mi
   service:
     type: ClusterIP
 
@@ -132,6 +132,13 @@ grafana:
 
   # Dashboard JSON will be loaded via ConfigMap sidecar
   sidecar:
+    resources:
+      requests:
+        cpu: 20m
+        memory: 96Mi
+      limits:
+        cpu: 100m
+        memory: 160Mi
     dashboards:
       enabled: true
       label: grafana_dashboard
